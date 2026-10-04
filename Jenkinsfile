@@ -2,31 +2,66 @@ pipeline {
     agent any
 
     stages {
+
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
 
-        stage('Build with Maven') {
+        stage('Build & Test') {
             steps {
-              sh 'mvn clean package'
+                sh 'mvn clean test package'
             }
         }
 
-        stage('Archive Artifact') {
+        stage('SonarQube Analysis') {
             steps {
-                archiveArtifacts artifacts: 'target/*.jar', fingerprint: true
+                withSonarQubeEnv('SonarQube') {
+                    sh 'mvn sonar:sonar -Dsonar.projectKey=DVP-Week-12-App'
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                sh 'docker build -t arisivam/dvp-week12-app:latest .'
+            }
+        }
+
+        stage('Docker Push') {
+            steps {
+                withDockerRegistry(
+                    credentialsId: 'dockerhub-credentials',
+                    url: 'https://index.docker.io/v1/'
+                ) {
+                    sh 'docker push arisivam/dvp-week12-app:latest'
+                }
+            }
+        }
+
+        stage('Deploy') {
+            steps {
+                sh 'docker rm -f dvp-week12-app || true'
+                sh 'docker run -d --name dvp-week12-app -p 8081:8080 arisivam/dvp-week12-app:latest'
             }
         }
     }
 
     post {
         success {
-            echo 'Build completed successfully!'
+            echo 'Week 12 CI/CD Pipeline completed successfully!'
         }
         failure {
-            echo 'Build failed!'
+            echo 'Week 12 CI/CD Pipeline failed!'
         }
     }
 }
